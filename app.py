@@ -5,10 +5,156 @@ import os  # Dùng cho thao tác hệ điều hành (xóa màn hình, kiểm tra
 from playwright.sync_api import sync_playwright  # Dùng Playwright bản sync để tự động hóa trình duyệt.
 
 TARGET_URL_PART = "student-requests?ignorePhase=true"  # Chuỗi nhận diện API response cần bắt.
+MYDATA_API_PART = "api/v1/course-member/student-course-members"  # API cần bắt để lưu dữ liệu vào mydata.json.
+PERSONAL_TRANSCRIPT_URL = "https://qldt.hust.edu.vn/students/learn/personal-transcript"  # Trang kích hoạt API student-course-members.
+TIMETABLE_API_PART = "api/v2/timetables/query-student-timetable-in-range"  # API cần bắt để lưu dữ liệu vào mydata2.json.
+TIMETABLE_URL = "https://qldt.hust.edu.vn/students/learn/timetable"  # Trang kích hoạt API student-timetable.
+
+PERSON_KEY_HINTS = ("student", "teacher", "staff", "coord", "assistant", "supervisor", "advisor", "full")
+PERSON_EXCLUDE_HINTS = ("course", "class", "program", "department", "school", "root", "major", "semester", "group")
 
 # ==========================================
 # PHẦN 1: CÁC HÀM XỬ LÝ DỮ LIỆU VÀ HIỂN THỊ THỜI KHÓA BIỂU
 # ==========================================
+
+def is_person_key(key_name):
+    """Nhận diện key có khả năng chứa tên người."""
+    lower_key = key_name.lower()
+    if any(part in lower_key for part in PERSON_EXCLUDE_HINTS):
+        return False
+    return any(part in lower_key for part in PERSON_KEY_HINTS)
+
+
+def to_string_id(value):
+    """Chuẩn hóa id về chuỗi, bỏ qua id rỗng/không hợp lệ."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return str(int(value))
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized if normalized else None
+    return None
+
+
+def split_names(value):
+    """Tách tên khi chuỗi có nhiều người ngăn cách bởi dấu phẩy."""
+    names = []
+    if isinstance(value, str):
+        names = [part.strip() for part in value.split(',') if part.strip()]
+    elif isinstance(value, list):
+        for item in value:
+            if isinstance(item, str):
+                names.extend([part.strip() for part in item.split(',') if part.strip()])
+    return names
+
+
+def add_person_pair(result_set, person_id, person_name):
+    """Thêm cặp id-name nếu hợp lệ."""
+    normalized_id = to_string_id(person_id)
+    if not normalized_id:
+        return
+    if not isinstance(person_name, str):
+        return
+    normalized_name = person_name.strip()
+    if not normalized_name:
+        return
+    result_set.add((normalized_id, normalized_name))
+
+
+def collect_person_pairs_from_dict(obj, result_set):
+    """Thu thập cặp id-name từ các pattern key thường gặp trong dữ liệu."""
+    lowered_keys = {key.lower(): key for key in obj.keys()}
+
+    # Pattern 1: <prefix>Id + <prefix>Name
+    for lower_key, original_key in lowered_keys.items():
+        if lower_key.endswith('name') and is_person_key(lower_key):
+            stem = lower_key[:-4]
+            id_key = lowered_keys.get(stem + 'id')
+            if id_key:
+                id_value = obj.get(id_key)
+                for person_name in split_names(obj.get(original_key)):
+                    add_person_pair(result_set, id_value, person_name)
+
+    # Pattern 2: <prefix>Ids + <prefix>Names (ghép theo index)
+    for lower_key, original_key in lowered_keys.items():
+        if lower_key.endswith('names') and is_person_key(lower_key):
+            stem = lower_key[:-5]
+            ids_key = lowered_keys.get(stem + 'ids')
+            if not ids_key:
+                continue
+            names_value = obj.get(original_key)
+            ids_value = obj.get(ids_key)
+            if isinstance(names_value, list) and isinstance(ids_value, list):
+                for index in range(min(len(names_value), len(ids_value))):
+                    current_names = split_names(names_value[index])
+                    if not current_names and isinstance(names_value[index], str):
+                        current_names = [names_value[index].strip()]
+                    for person_name in current_names:
+                        add_person_pair(result_set, ids_value[index], person_name)
+
+    # Pattern 3: object có id + fullName
+    if 'id' in lowered_keys and 'fullname' in lowered_keys:
+        for person_name in split_names(obj.get(lowered_keys['fullname'])):
+            add_person_pair(result_set, obj.get(lowered_keys['id']), person_name)
+
+    # Pattern 4: gradeLogs chứa chuỗi JSON có staffId + staffName
+    if 'gradelogs' in lowered_keys and isinstance(obj.get(lowered_keys['gradelogs']), list):
+        for item in obj.get(lowered_keys['gradelogs']):
+            if isinstance(item, str) and 'staffName' in item and 'staffId' in item:
+                try:
+                    parsed_item = json.loads(item)
+                    for person_name in split_names(parsed_item.get('staffName')):
+                        add_person_pair(result_set, parsed_item.get('staffId'), person_name)
+                except Exception:
+                    continue
+
+
+def walk_and_collect_person_pairs(data, result_set):
+    """Duyệt đệ quy toàn bộ JSON để thu thập cặp id-name."""
+    if isinstance(data, dict):
+        collect_person_pairs_from_dict(data, result_set)
+        for value in data.values():
+            walk_and_collect_person_pairs(value, result_set)
+    elif isinstance(data, list):
+        for item in data:
+            walk_and_collect_person_pairs(item, result_set)
+
+
+def save_person_id_name_file(input_file, output_file):
+    """Đọc file JSON nguồn và sinh file mapping id->name giống teachers_cache.json."""
+    with open(input_file, 'r', encoding='utf-8') as source_file:
+        source_data = json.load(source_file)
+
+    pairs_set = set()
+    walk_and_collect_person_pairs(source_data, pairs_set)
+
+    id_to_name = {}
+    conflict_count = 0
+    skipped_unknown_id = 0
+
+    for person_id, person_name in sorted(pairs_set, key=lambda pair: (pair[0], pair[1].lower())):
+        # Bỏ qua id không xác định để tránh ghi đè nhiều người chung id -1.
+        if person_id == "-1":
+            skipped_unknown_id += 1
+            continue
+
+        existing_name = id_to_name.get(person_id)
+        if existing_name is None:
+            id_to_name[person_id] = person_name
+        elif existing_name != person_name:
+            # Giữ tên đầu tiên để mapping ổn định, chỉ đếm xung đột để log.
+            conflict_count += 1
+
+    id_to_name = dict(sorted(id_to_name.items(), key=lambda item: item[1].lower()))
+
+    with open(output_file, 'w', encoding='utf-8') as destination_file:
+        json.dump(id_to_name, destination_file, ensure_ascii=False, indent=4)
+
+    print(
+        f"--- Đã lọc và lưu {len(id_to_name)} cặp id->name vào {output_file} "
+        f"(bỏ qua {skipped_unknown_id} bản ghi id=-1, xung đột id: {conflict_count}) ---"
+    )
 
 def get_teacher_mapping(cache_file='teachers_cache.json'):
     """Lấy danh sách giảng viên và hợp nhất với dữ liệu nhập tay."""
@@ -198,6 +344,75 @@ def extract_hust_schedule_final(file_path, teacher_lookup):  # Hàm đọc class
 # PHẦN 2: TỰ ĐỘNG HÓA VÀ KẾT NỐI VỚI PLAYWRIGHT
 # ==========================================
 
+def fetch_and_save_mydata(page, output_file="mydata.json", timeout_ms=45000):
+    """Vào trang bảng điểm, chờ API student-course-members và lưu toàn bộ JSON vào file."""
+    print("\n--- Đang vào personal-transcript để lấy dữ liệu mydata.json... ---")
+    response = None
+
+    # Chờ response ngay trong lúc điều hướng để tránh bỏ lỡ request trả về quá nhanh.
+    for attempt in range(2):
+        try:
+            with page.expect_response(
+                lambda r: (MYDATA_API_PART in r.url and r.request.method.upper() == "GET"),
+                timeout=timeout_ms
+            ) as response_info:
+                if attempt == 0:
+                    page.goto(PERSONAL_TRANSCRIPT_URL, wait_until="domcontentloaded")
+                else:
+                    page.reload(wait_until="domcontentloaded")
+            response = response_info.value
+            break
+        except Exception:
+            if attempt == 1:
+                raise
+
+    mydata = response.json()
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(mydata, f, ensure_ascii=False, indent=4)
+
+    print(f"--- Đã lưu toàn bộ dữ liệu vào {output_file} ---")
+
+    # Tự động lọc danh sách person id-name sau khi tải dữ liệu nguồn.
+    try:
+        save_person_id_name_file(output_file, "mydata_person_id_name.json")
+    except Exception as e:
+        print(f"Không lọc được file mydata_person_id_name.json: {e}")
+
+
+def fetch_and_save_timetable(page, output_file="mydata2.json", timeout_ms=45000):
+    """Vào trang timetable, chờ API query-student-timetable-in-range và lưu toàn bộ JSON vào file."""
+    print("\n--- Đang vào timetable để lấy dữ liệu mydata2.json... ---")
+    response = None
+
+    # Chờ response ngay trong lúc điều hướng để tránh bỏ lỡ request trả về quá nhanh.
+    for attempt in range(2):
+        try:
+            with page.expect_response(
+                lambda r: (TIMETABLE_API_PART in r.url and r.request.method.upper() == "POST"),
+                timeout=timeout_ms
+            ) as response_info:
+                if attempt == 0:
+                    page.goto(TIMETABLE_URL, wait_until="domcontentloaded")
+                else:
+                    page.reload(wait_until="domcontentloaded")
+            response = response_info.value
+            break
+        except Exception:
+            if attempt == 1:
+                raise
+
+    timetable_data = response.json()
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(timetable_data, f, ensure_ascii=False, indent=4)
+
+    print(f"--- Đã lưu toàn bộ dữ liệu vào {output_file} ---")
+
+    # Tự động lọc danh sách person id-name sau khi tải dữ liệu nguồn.
+    try:
+        save_person_id_name_file(output_file, "mydata2_person_id_name.json")
+    except Exception as e:
+        print(f"Không lọc được file mydata2_person_id_name.json: {e}")
+
 def run(playwright):  # Hàm (Function - 関数 / かんすう) điều phối chính cho quá trình tự động hóa.
     # 1. Chuẩn bị dữ liệu giảng viên trước khi mở trình duyệt (Browser - ブラウザ / ぶらうざ)
     teacher_mapping = get_teacher_mapping()  
@@ -237,6 +452,18 @@ def run(playwright):  # Hàm (Function - 関数 / かんすう) điều phối c
 
     # THAY ĐỔI Ở ĐÂY: Dùng input() để người dùng tự quyết định thời gian chờ (Timeout - タイムアウト / たいむあうと)
     input("\n>>> [CHỜ XÁC NHẬN] Bấm phím ENTER tại đây SAU KHI bạn đã vào đến trang đăng ký... <<<")
+
+    # Bắt API student-course-members và lưu vào mydata.json sau khi đăng nhập thành công.
+    try:
+        fetch_and_save_mydata(page, output_file="mydata.json", timeout_ms=45000)
+    except Exception as e:
+        print(f"Không lấy được dữ liệu mydata.json: {e}")
+
+    # Bắt API student-timetable và lưu vào mydata2.json sau khi đăng nhập thành công.
+    try:
+        fetch_and_save_timetable(page, output_file="mydata2.json", timeout_ms=45000)
+    except Exception as e:
+        print(f"Không lấy được dữ liệu mydata2.json: {e}")
 
     # Vòng lặp (Loop - ループ / るーぷ) tải lại trang
     try:  
