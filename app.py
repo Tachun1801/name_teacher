@@ -251,6 +251,26 @@ def get_teacher_mapping(cache_file='teachers_cache.json'):
     print(f"--- Tổng cộng: {len(teacher_map)} giảng viên (đã bao gồm {len(MANUAL_TEACHER_DATA)} người nhập tay). ---")
     return teacher_map
 
+def merge_person_files_into_mapping(teacher_mapping, *json_files):
+    """Bổ sung các file person id-name vào mapping hiện có (không ghi đè)."""
+    total_added = 0
+    for filepath in json_files:
+        if not os.path.exists(filepath):
+            continue
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                persons = json.load(f)
+            added = 0
+            for pid, pname in persons.items():
+                if pid not in teacher_mapping:  # Không ghi đè dữ liệu ban đầu
+                    teacher_mapping[pid] = pname
+                    added += 1
+            print(f"--- [{filepath}] Bổ sung {added}/{len(persons)} bản ghi mới ---")
+            total_added += added
+        except Exception as e:
+            print(f"Không đọc được {filepath}: {e}")
+    print(f"--- Tổng cộng sau merge: {len(teacher_mapping)} giảng viên ---")
+
 def extract_hust_schedule_final(file_path, teacher_lookup):  # Hàm đọc class.json và in thời khóa biểu.
     try:  # Bắt lỗi đọc file hoặc parse JSON.
         with open(file_path, 'r', encoding='utf-8') as file:  # Mở file dữ liệu lớp ở chế độ đọc.
@@ -464,6 +484,14 @@ def run(playwright):  # Hàm (Function - 関数 / かんすう) điều phối c
         fetch_and_save_timetable(page, output_file="mydata2.json", timeout_ms=45000)
     except Exception as e:
         print(f"Không lấy được dữ liệu mydata2.json: {e}")
+
+    # ✅ THÊM: Merge dữ liệu thực tế vừa bắt được vào teacher_mapping
+    # teacher_mapping là dict mutable → handle_response sẽ tự động dùng dữ liệu mới
+    merge_person_files_into_mapping(
+        teacher_mapping,
+        "mydata_person_id_name.json",
+        "mydata2_person_id_name.json"
+    )
 
     # Vòng lặp (Loop - ループ / るーぷ) tải lại trang
     try:  
