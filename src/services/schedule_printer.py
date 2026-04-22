@@ -1,8 +1,16 @@
+"""VN: In thời khóa biểu từ dữ liệu lớp đã tải về.
+EN: Print the timetable from downloaded class data.
+JP: 取得したクラスデータから時間割を表示します。
+"""
+
 import json
 
 
 def extract_hust_schedule_final(file_path: str, teacher_lookup: dict[str, str]) -> None:
-    """Đọc dữ liệu lớp và in thời khóa biểu kèm tên giảng viên."""
+    """VN: Đọc dữ liệu lớp và in thời khóa biểu kèm tên giảng viên.
+    EN: Read class data and print the timetable with teacher names.
+    JP: クラスデータを読み込み、教員名付きの時間割を表示します。
+    """
     try:
         with open(file_path, "r", encoding="utf-8") as file_handle:
             content = file_handle.read()

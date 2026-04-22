@@ -1,3 +1,8 @@
+"""VN: Dữ liệu giảng viên nhập tay để bù cho nguồn tự động.
+EN: Manually curated teacher data used to fill gaps.
+JP: 自動取得の不足を補う手入力の教員データです。
+"""
+
 MANUAL_TEACHER_DATA = {
     "4615741525458944": "Trương Minh Toàn",
     "4617949795057664": "Phạm Văn San",

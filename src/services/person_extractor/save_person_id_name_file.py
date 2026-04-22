@@ -1,10 +1,18 @@
+"""VN: Lọc dữ liệu nguồn và ghi ra file mapping id -> tên.
+EN: Filter source data and write an id-to-name mapping file.
+JP: 元データを絞り込み、id から名前へのマッピングを書き出します。
+"""
+
 import json
 
 from src.services.person_extractor.walk_and_collect_person_pairs import walk_and_collect_person_pairs
 
 
 def save_person_id_name_file(input_file: str, output_file: str) -> None:
-    """Đọc file JSON nguồn và sinh file mapping id->name giống teacher cache."""
+    """VN: Đọc file JSON nguồn và sinh file mapping id->name giống teacher cache.
+    EN: Read the source JSON file and generate an id-to-name mapping like the teacher cache.
+    JP: 元の JSON ファイルを読み込み、教員キャッシュと同様の id-名前マッピングを生成します。
+    """
     with open(input_file, "r", encoding="utf-8") as source_file:
         source_data = json.load(source_file)
 
