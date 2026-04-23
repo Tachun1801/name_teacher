@@ -1,106 +1,82 @@
 # Cấu trúc dự án (Tiếng Việt)
 
-## 1) Mục tiêu tổng quát
-Dự án tự động hóa việc bắt dữ liệu từ các trang sinh viên HUST bằng Playwright, sau đó xử lý JSON để in thời khóa biểu dễ đọc kèm tên giảng viên.
+Mục tiêu của tài liệu này là trình bày cấu trúc theo dạng cây, chi tiết đến từng file để dễ tra cứu nhanh.
 
-## 2) Thư mục/chạy chính
+## Cây thư mục và file
 
-- `app.py`
-  - File chạy vào hệ thống. Chỉ gọi `src.main.main()`.
-- `src/`
-  - Toàn bộ mã nguồn chính.
-- `data/`
-  - Dữ liệu JSON bắt được và dữ liệu đã xử lý.
-- `.venv/`
-  - Môi trường Python.
-- `docs/`
-  - Tài liệu mô tả dự án.
+```text
+teachers-of-hust-v3/
+├── README.md                                    # Tổng quan dự án, cài đặt, cách chạy
+├── run.py                                       # Entry point chạy chương trình
+├── docs/
+│   ├── operation-flow/
+│   │   ├── flow-en.md                           # Luồng hoạt động (English)
+│   │   ├── flow-ja.md                           # Luồng hoạt động (Japanese)
+│   │   └── flow-vi.md                           # Luồng hoạt động (Vietnamese)
+│   └── project-structure/
+│       ├── structure-en.md                      # Mô tả cấu trúc dự án (English)
+│       ├── structure-ja.md                      # Mô tả cấu trúc dự án (Japanese)
+│       └── structure-vi.md                      # Mô tả cấu trúc dự án (Vietnamese)
+└── src/
+    ├── __init__.py                              # Đánh dấu package src
+    ├── config.py                                # Hằng số cấu hình + tạo thư mục output data
+    ├── main.py                                  # Điều phối luồng chính
+    └── services/
+        ├── __init__.py                          # Đánh dấu package services
+        ├── schedule_printer.py                  # Parse/in thời khóa biểu từ dữ liệu class-registration
+        ├── browser/
+        │   ├── __init__.py                      # Đánh dấu package browser
+        │   ├── fetch_and_save_student_course_members.py
+        │   │                                       # Bắt và lưu response course-members
+        │   ├── fetch_and_save_student_timetable.py
+        │   │                                       # Bắt và lưu response timetable
+        │   ├── process_class_registration_response.py
+        │   │                                       # Xử lý response class-registration rồi gọi in lịch
+        │   └── run_automation.py                # Luồng Playwright automation chính
+        ├── person_extractor/
+        │   ├── __init__.py                      # Đánh dấu package person_extractor
+        │   ├── add_person_pair.py               # Validate và thêm cặp (id, name)
+        │   ├── collect_person_pairs_from_dict.py
+        │   │                                       # Trích cặp person từ dict theo nhiều pattern
+        │   ├── constants.py                     # Tập key gợi ý nhận diện dữ liệu person
+        │   ├── is_person_key.py                 # Kiểm tra key có liên quan người hay không
+        │   ├── save_person_id_name_file.py      # Lưu file JSON mapping person_id -> person_name
+        │   ├── split_names.py                   # Tách chuỗi nhiều tên thành danh sách tên
+        │   ├── to_string_id.py                  # Chuẩn hóa ID về chuỗi
+        │   └── walk_and_collect_person_pairs.py # Duyệt đệ quy JSON để gom person pairs
+        └── teacher_mapping/
+            ├── __init__.py                      # Đánh dấu package teacher_mapping
+            ├── get_teacher_mapping.py           # Nạp/merge mapping giảng viên từ nhiều nguồn
+            ├── manual_teacher_data.py           # Dữ liệu giảng viên nhập tay
+            └── merge_person_files_into_mapping.py
+                                                    # Gộp person map phát sinh vào teacher mapping
+```
 
-## 3) Chi tiết mã nguồn
+## Dữ liệu runtime (được tạo khi chạy)
 
-### `src/main.py`
-- `main()`
-  - Điều phối luồng chạy chính.
-  - Tạo thư mục output nếu thiếu.
-  - Nạp mapping giảng viên.
-  - Khởi chạy Playwright và bắt đầu automation.
+Các thư mục/file dưới đây thường không có sẵn từ đầu, sẽ được sinh trong lúc chạy:
 
-### `src/config.py`
-- Chứa hằng số cấu hình:
-  - URL các trang và dấu hiệu API.
-  - timeout mặc định.
-  - đường dẫn file output.
-- `ensure_output_directories()`
-  - Tạo `data/raw`, `data/derived`, `data/cache`.
+```text
+data/
+├── raw/
+│   ├── class_registration_response.json
+│   ├── student_course_members_response.json
+│   └── student_timetable_response.json
+├── derived/
+│   ├── student_course_members_person_map.json
+│   └── student_timetable_person_map.json
+└── cache/
+    └── teacher_directory_cache.json
+```
 
-### `src/services/browser/`
-- `run_automation.py`
-  - Luồng tự động hóa chính trên trình duyệt.
-- `process_class_registration_response.py`
-  - Lọc response class-registration và gọi in thời khóa biểu.
-- `fetch_and_save_student_course_members.py`
-  - Bắt/lưu response course-members.
-  - Sinh thêm file mapping person-id-name từ response này.
-- `fetch_and_save_student_timetable.py`
-  - Bắt/lưu response timetable.
-  - Sinh thêm file mapping person-id-name từ response này.
+Ngoài ra, Python có thể tự sinh thư mục `__pycache__/` và các file `.pyc` trong quá trình chạy.
 
-### `src/services/teacher_mapping/`
-- `manual_teacher_data.py`
-  - Dữ liệu giảng viên nhập tay (ID -> tên).
-- `get_teacher_mapping.py`
-  - Nạp cache, gọi API bổ sung khi cần, rồi merge dữ liệu nhập tay.
-- `merge_person_files_into_mapping.py`
-  - Gộp các map person đã sinh vào mapping đang dùng mà không ghi đè key có sẵn.
+## Luồng liên kết nhanh
 
-### `src/services/person_extractor/`
-- `constants.py`
-  - Tập key gợi ý để nhận diện trường thông tin con người.
-- `is_person_key.py`
-  - Kiểm tra tên key có phải key liên quan người hay không.
-- `to_string_id.py`
-  - Chuẩn hóa ID về chuỗi an toàn.
-- `split_names.py`
-  - Tách chuỗi nhiều tên thành danh sách.
-- `add_person_pair.py`
-  - Validate và thêm cặp `(id, name)` vào set.
-- `collect_person_pairs_from_dict.py`
-  - Trích cặp person từ một object dict theo nhiều pattern.
-- `walk_and_collect_person_pairs.py`
-  - Duyệt đệ quy JSON lồng nhau để gom dữ liệu person.
-- `save_person_id_name_file.py`
-  - Tạo file JSON mapping ID->tên từ dữ liệu nguồn.
-
-### `src/services/schedule_printer.py`
-- `extract_hust_schedule_final()`
-  - Đọc dữ liệu class-registration.
-  - Tổng hợp lịch học/tín chỉ.
-  - In thời khóa biểu theo định dạng rõ ràng.
-
-## 4) Cấu trúc dữ liệu
-
-### `data/raw/`
-Dữ liệu response gốc:
-- `class_registration_response.json`
-- `student_course_members_response.json`
-- `student_timetable_response.json`
-
-### `data/derived/`
-Dữ liệu phát sinh sau xử lý:
-- `student_course_members_person_map.json`
-- `student_timetable_person_map.json`
-
-### `data/cache/`
-Dữ liệu cache:
-- `teacher_directory_cache.json`
-
-## 5) Tóm tắt quan hệ các thành phần
-
-1. `app.py` gọi `src/main.py`.
-2. `config` tạo thư mục output.
-3. Nạp mapping giảng viên.
-4. Browser automation bắt response API cần thiết.
-5. Ghi dữ liệu thô vào `data/raw`.
-6. Sinh map person vào `data/derived`.
-7. Gộp map vào teacher mapping.
-8. Khi có response class-registration thì parse và in thời khóa biểu.
+1. `run.py` gọi vào `src.main.main()`.
+2. `src/config.py` đảm bảo các thư mục output tồn tại.
+3. `src/services/teacher_mapping/get_teacher_mapping.py` chuẩn bị mapping giảng viên.
+4. `src/services/browser/run_automation.py` chạy Playwright để bắt response API.
+5. Các file trong `src/services/browser/` lưu raw JSON và kích hoạt xử lý tiếp.
+6. Các file trong `src/services/person_extractor/` trích xuất `person_id -> person_name`.
+7. `src/services/schedule_printer.py` tổng hợp và in thời khóa biểu cuối cùng.
